@@ -1,11 +1,11 @@
 import datetime
 import logging
 import pprint
-
+from pathlib import Path
 import redis
 import requests
 from environs import Env
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto
 from telegram.ext import (
     Updater,
     CommandHandler,
@@ -13,6 +13,7 @@ from telegram.ext import (
     ConversationHandler,
     CallbackContext,
 )
+# from telegram.utils import types
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
@@ -53,7 +54,7 @@ def get_cms_token():
         token_data = response.json()
         redis_db.set('expires', token_data.get('expires'))
         redis_db.set('access_token', token_data.get('access_token'))
-        print(token_data.get('expires'), token_data.get('access_token'))
+        # print(token_data.get('expires'), token_data.get('access_token'))
         return token_data.get('access_token')
 
 
@@ -95,13 +96,41 @@ def get_product_info(product_id):
         get_product_price(product_id),
         products_data.get('attributes').get('description', ''),
     ]
-    pprint.pprint(products_data)
+    # pprint.pprint(products_data)
     return '\n'.join(product_info)
 
 
 def get_product_price(product_id):
     price_book_id = env('PRICE_BOOK_ID')
     return '$1 per kg'
+
+
+def get_product_image(product_id):
+    header = {
+        'Authorization': f'Bearer {get_cms_token()}',
+        }
+    url_path = f'/pcm/products/{product_id}/relationships/main_image'
+    url = f'{BASE_URL}{url_path}'
+    response = requests.get(url, headers=header)
+    response.raise_for_status()
+    image_file_id = response.json()['data'].get('id', '')
+
+    file_path = Path.cwd() / 'images' / image_file_id
+
+    if not file_path.exists():
+        url_path = f'/v2/files/{image_file_id}'
+        url = f'{BASE_URL}{url_path}'
+        response = requests.get(url, headers=header)
+        response.raise_for_status()
+        image_url = response.json()['data']['link'].get('href', '')
+
+        response = requests.get(image_url, headers=header)
+        response.raise_for_status()
+        Path(Path.cwd() / 'images').mkdir(parents=True, exist_ok=True)
+        with open(file_path, 'wb') as file_to_save:
+            file_to_save.write(response.content)
+        print('Скачал')
+    return file_path
 
 
 def start(update: Update, context: CallbackContext) -> int:
@@ -122,7 +151,9 @@ def start(update: Update, context: CallbackContext) -> int:
     keyboard = buttons
     reply_markup = InlineKeyboardMarkup(keyboard)
     # Send message with text and appended InlineKeyboard
-    update.message.reply_text('Please, choose:', reply_markup=reply_markup)
+    # update.message.reply_text('Please, choose:', reply_markup=reply_markup)
+    logo = Path.cwd() / 'images' / 'logo.png'
+    update.message.reply_photo(photo=open(logo, 'rb'), caption='Please, choose:', reply_markup=reply_markup)
     # Tell ConversationHandler that we're in state `FIRST` now
     return FIRST
 
@@ -144,10 +175,13 @@ def start_over(update: Update, context: CallbackContext) -> int:
         )
     keyboard = buttons
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # Instead of sending a new message, edit the message that
-    # originated the CallbackQuery. This gives the feeling of an
+    # Instead of sending a new message, edit the message that originated the CallbackQuery. This gives the feeling of an
     # interactive menu.
-    query.edit_message_text(text='Please, choose:', reply_markup=reply_markup)
+    # query.edit_message_text(text='Please, choose:', reply_markup=reply_markup)
+    logo = Path.cwd() / 'images' / 'logo.png'
+    with open(logo, 'rb') as photo:
+        query.edit_message_media(media=InputMediaPhoto(media=photo, caption='Please, choose:'), reply_markup=reply_markup)
+
     return FIRST
 
 
@@ -164,7 +198,10 @@ def show_product_info(update: Update, context: CallbackContext) -> int:
     reply_markup = InlineKeyboardMarkup(keyboard)
     product_id = query.data
     product_info = get_product_info(product_id)
-    query.edit_message_text(text=product_info, reply_markup=reply_markup)
+    # query.edit_message_text(text=product_info, reply_markup=reply_markup)
+    image = get_product_image(product_id)
+    with open(image, 'rb') as photo:
+        query.edit_message_media(media=InputMediaPhoto(media=photo, caption=product_info), reply_markup=reply_markup)
     return FIRST
 
 

@@ -84,7 +84,7 @@ def get_all_products():
     return products
 
 
-def get_product_info(product_id):
+def get_product_details(product_id):
     header = {
         'Authorization': f'Bearer {get_cms_token()}',
         }
@@ -96,12 +96,12 @@ def get_product_info(product_id):
     response = requests.get(url, headers=header, params=params)
     response.raise_for_status()
     products_data = response.json()['data'][0]
-    product_info = [
+    product_details = [
         products_data['attributes']['name'],
         get_product_price(product_id),
         products_data.get('attributes').get('description', ''),
     ]
-    return '\n'.join(product_info)
+    return '\n'.join(product_details)
 
 
 def get_product_price(product_id):
@@ -159,6 +159,28 @@ def add_to_cart(update: Update, context: CallbackContext) -> int:
     return FILL_CART
 
 
+def delete_from_cart(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    query.answer()
+    product_id = query.data
+
+    header = {
+        'Authorization': f'Bearer {get_cms_token()}',
+        }
+    url_path = f'/v2/carts/{update.effective_user.id}/items'
+    url = f'{BASE_URL}{url_path}'
+    data = {
+        'data': {
+            'id': product_id,
+            'type': 'cart_item',
+            'quantity': int(quantity),
+        }
+    }
+    response = requests.post(url, headers=header, json=data)
+    response.raise_for_status()
+    return FILL_CART
+
+
 def show_cart(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     query.answer()
@@ -179,7 +201,9 @@ def show_cart(update: Update, context: CallbackContext) -> int:
             ''
         ))
     products.append(f"Total: {cart['meta']['display_price']['with_tax']['formatted']}")
-    cart_info = 'Your cart:\n\n' + '\n'.join(products)
+    cart_content = 'Your cart:\n\n' + '\n'.join(products)
+    
+    
     keyboard = [
         [InlineKeyboardButton("-", callback_data=f'{str(Buttons.ONE.value)}'),],
         [InlineKeyboardButton("Back to main menu", callback_data=Buttons.START.value),]
@@ -187,7 +211,7 @@ def show_cart(update: Update, context: CallbackContext) -> int:
     reply_markup = InlineKeyboardMarkup(keyboard)
     logo = Path.cwd() / 'images' / 'logo.png'
     with open(logo, 'rb') as photo:
-        query.edit_message_media(media=InputMediaPhoto(media=photo, caption=cart_info), reply_markup=reply_markup)
+        query.edit_message_media(media=InputMediaPhoto(media=photo, caption=cart_content), reply_markup=reply_markup)
 
     return HANDLE_CART
 
@@ -246,7 +270,7 @@ def start_over(update: Update, context: CallbackContext) -> int:
     return CHOOSE
 
 
-def show_product_info(update: Update, context: CallbackContext) -> int:
+def show_product(update: Update, context: CallbackContext) -> int:
     """Show new choice of buttons"""
     query = update.callback_query
     query.answer()
@@ -262,10 +286,10 @@ def show_product_info(update: Update, context: CallbackContext) -> int:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    product_info = get_product_info(product_id)
+    product_details = get_product_details(product_id)
     image = get_product_image(product_id)
     with open(image, 'rb') as photo:
-        query.edit_message_media(media=InputMediaPhoto(media=photo, caption=product_info), reply_markup=reply_markup)
+        query.edit_message_media(media=InputMediaPhoto(media=photo, caption=product_details), reply_markup=reply_markup)
     return FILL_CART
 
 
@@ -293,7 +317,7 @@ def main() -> None:
             CHOOSE: [
                 CallbackQueryHandler(start_over, pattern='^' + str(Buttons.START.value) + '$'),
                 CallbackQueryHandler(show_cart, pattern='^' + str(Buttons.CART.value) + '$'),
-                CallbackQueryHandler(show_product_info),
+                CallbackQueryHandler(show_product),
             ],
             FILL_CART: [
                 CallbackQueryHandler(start_over, pattern='^' + str(Buttons.START.value) + '$'),

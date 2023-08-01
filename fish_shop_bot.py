@@ -141,7 +141,6 @@ def add_to_cart(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     query.answer()
     quantity, product_id = query.data.split(maxsplit=1)
-
     header = {
         'Authorization': f'Bearer {get_cms_token()}',
         }
@@ -162,23 +161,16 @@ def add_to_cart(update: Update, context: CallbackContext) -> int:
 def delete_from_cart(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     query.answer()
-    product_id = query.data
+    cart_item_id = query.data
 
     header = {
         'Authorization': f'Bearer {get_cms_token()}',
         }
-    url_path = f'/v2/carts/{update.effective_user.id}/items'
+    url_path = f'/v2/carts/{update.effective_user.id}/items/{cart_item_id}'
     url = f'{BASE_URL}{url_path}'
-    data = {
-        'data': {
-            'id': product_id,
-            'type': 'cart_item',
-            'quantity': int(quantity),
-        }
-    }
-    response = requests.post(url, headers=header, json=data)
+    response = requests.delete(url, headers=header)
     response.raise_for_status()
-    return FILL_CART
+    return show_cart(update, context)
 
 
 def show_cart(update: Update, context: CallbackContext) -> int:
@@ -193,6 +185,7 @@ def show_cart(update: Update, context: CallbackContext) -> int:
     response.raise_for_status()
     cart = response.json()
     products = []
+    keyboard = []
     for product in cart['data']:
         products.extend((
             product['name'],
@@ -200,14 +193,15 @@ def show_cart(update: Update, context: CallbackContext) -> int:
             f"{product['quantity']} kg in cart for ${product['value']['amount'] / 100}",
             ''
         ))
+        keyboard.append(
+            [
+                InlineKeyboardButton(f"Remove from cart {product['name']}", callback_data=f"{product['id']}")
+            ]
+        )
     products.append(f"Total: {cart['meta']['display_price']['with_tax']['formatted']}")
     cart_content = 'Your cart:\n\n' + '\n'.join(products)
-    
-    
-    keyboard = [
-        [InlineKeyboardButton("-", callback_data=f'{str(Buttons.ONE.value)}'),],
-        [InlineKeyboardButton("Back to main menu", callback_data=Buttons.START.value),]
-    ]
+
+    keyboard.append([InlineKeyboardButton("Back to main menu", callback_data=Buttons.START.value)])
     reply_markup = InlineKeyboardMarkup(keyboard)
     logo = Path.cwd() / 'images' / 'logo.png'
     with open(logo, 'rb') as photo:
@@ -327,6 +321,7 @@ def main() -> None:
             ],
             HANDLE_CART: [
                 CallbackQueryHandler(start_over, pattern='^' + str(Buttons.START.value) + '$'),
+                CallbackQueryHandler(delete_from_cart),
                 # CallbackQueryHandler(end, pattern='^' + str('') + '$'),
             ],
         },

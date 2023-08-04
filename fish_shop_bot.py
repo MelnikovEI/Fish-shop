@@ -1,9 +1,7 @@
-import datetime
 import logging
 from enum import Enum
 from pathlib import Path
 import redis
-import requests
 from environs import Env
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto
 from telegram.ext import (
@@ -13,14 +11,21 @@ from telegram.ext import (
     ConversationHandler,
     CallbackContext, MessageHandler, Filters,
 )
+from cms_api import (
+    add_product_to_cart, delete_product_from_cart, get_cart_products, get_all_products,
+    get_product_details, get_product_image, add_customer_to_cms,
+)
 
 logger = logging.getLogger(__name__)
-
 env = Env()
-env.read_env()
-BASE_URL = env('BASE_URL')
 
 CHOOSE, FILL_CART, HANDLE_CART, WAITING_EMAIL, END = range(5)  # Statuses
+
+redis_db = redis.Redis(
+    host=env('DATABASE_HOST'), port=env('DATABASE_PORT'), username=env('DATABASE_USERNAME'),
+    password=env('DATABASE_PASSWORD'),
+    decode_responses=True
+)
 
 
 class Buttons(Enum):
@@ -33,131 +38,11 @@ class Buttons(Enum):
     TEN = 10
 
 
-redis_db = redis.Redis(
-    host=env('DATABASE_HOST'), port=env('DATABASE_PORT'), username=env('DATABASE_USERNAME'),
-    password=env('DATABASE_PASSWORD'),
-    decode_responses=True
-)
-
-
-def get_cms_token():
-    expires = redis_db.get('expires')
-    if expires and float(expires) > datetime.datetime.timestamp(datetime.datetime.now())+100:
-        return redis_db.get('access_token')
-    else:
-        data = {
-            'client_id': env('CMS_CLIENT_ID'),
-            'client_secret': env('CMS_CLIENT_SECRET'),
-            'grant_type': 'client_credentials',
-        }
-        url_path = '/oauth/access_token'
-        url = f'{BASE_URL}{url_path}'
-        response = requests.post(url, data=data)
-        response.raise_for_status()
-        token_data = response.json()
-        redis_db.set('expires', token_data.get('expires'))
-        redis_db.set('access_token', token_data.get('access_token'))
-        return token_data.get('access_token')
-
-
-def get_all_products():
-    header = {
-        'Authorization': f'Bearer {get_cms_token()}',
-        }
-    url_path = '/pcm/products'
-    url = f'{BASE_URL}{url_path}'
-    response = requests.get(url, headers=header)
-    response.raise_for_status()
-    products_data = response.json()['data']
-    products = []
-    for product in products_data:
-        products.append(
-            {
-                'name': product['attributes']['name'],
-                'id': product['id'],
-            }
-        )
-    return products
-
-
-def get_product_price(product_id):
-    header = {
-        'Authorization': f'Bearer {get_cms_token()}',
-    }
-    url_path = f'/catalog/products/{product_id}'
-    url = f'{BASE_URL}{url_path}'
-    response = requests.get(url, headers=header)
-    response.raise_for_status()
-    price_data = response.json()['data']
-    product_price = int(price_data['attributes']['price']['USD']['amount'])/100
-    return f'${product_price} per kg'
-
-
-def get_product_details(product_id):
-    header = {
-        'Authorization': f'Bearer {get_cms_token()}',
-        }
-    params = {
-        'filter': f'eq(id,{product_id})'
-    }
-    url_path = '/pcm/products'
-    url = f'{BASE_URL}{url_path}'
-    response = requests.get(url, headers=header, params=params)
-    response.raise_for_status()
-    products_data = response.json()['data'][0]
-    product_details = [
-        products_data['attributes']['name'],
-        get_product_price(product_id),
-        products_data.get('attributes').get('description', ''),
-    ]
-    return '\n'.join(product_details)
-
-
-def get_product_image(product_id):
-    header = {
-        'Authorization': f'Bearer {get_cms_token()}',
-        }
-    url_path = f'/pcm/products/{product_id}/relationships/main_image'
-    url = f'{BASE_URL}{url_path}'
-    response = requests.get(url, headers=header)
-    response.raise_for_status()
-    image_file_id = response.json()['data'].get('id', '')
-
-    file_path = Path.cwd() / 'images' / image_file_id
-
-    if not file_path.exists():
-        url_path = f'/v2/files/{image_file_id}'
-        url = f'{BASE_URL}{url_path}'
-        response = requests.get(url, headers=header)
-        response.raise_for_status()
-        image_url = response.json()['data']['link'].get('href', '')
-
-        response = requests.get(image_url, headers=header)
-        response.raise_for_status()
-        Path(Path.cwd() / 'images').mkdir(parents=True, exist_ok=True)
-        with open(file_path, 'wb') as file_to_save:
-            file_to_save.write(response.content)
-    return file_path
-
-
 def add_to_cart(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     query.answer()
     quantity, product_id = query.data.split(maxsplit=1)
-    header = {
-        'Authorization': f'Bearer {get_cms_token()}',
-        }
-    url_path = f'/v2/carts/{update.effective_user.id}/items'
-    url = f'{BASE_URL}{url_path}'
-    data = {
-        'data': {
-            'id': product_id,
-            'type': 'cart_item',
-            'quantity': int(quantity),
-        }
-    }
-    response = requests.post(url, headers=header, json=data)
-    response.raise_for_status()
+    add_product_to_cart(update.effective_user.id, quantity, product_id)
     redis_db.hset(update.effective_user.id, mapping={'status': FILL_CART})
     return FILL_CART
 
@@ -165,29 +50,16 @@ def add_to_cart(update: Update, context: CallbackContext) -> int:
 def delete_from_cart(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     query.answer()
-    cart_item_id = query.data
-
-    header = {
-        'Authorization': f'Bearer {get_cms_token()}',
-        }
-    url_path = f'/v2/carts/{update.effective_user.id}/items/{cart_item_id}'
-    url = f'{BASE_URL}{url_path}'
-    response = requests.delete(url, headers=header)
-    response.raise_for_status()
+    product_id = query.data
+    user = update.effective_user.id
+    delete_product_from_cart(user, product_id)
     return show_cart(update, context)
 
 
 def show_cart(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     query.answer()
-    header = {
-        'Authorization': f'Bearer {get_cms_token()}',
-        }
-    url_path = f'/v2/carts/{update.effective_user.id}/items'
-    url = f'{BASE_URL}{url_path}'
-    response = requests.get(url, headers=header)
-    response.raise_for_status()
-    cart = response.json()
+    cart = get_cart_products(update.effective_user.id)
     products = []
     keyboard = []
     for product in cart['data']:
@@ -304,35 +176,9 @@ def incorrect_email(update: Update, context: CallbackContext) -> int:
 
 
 def add_customer(update: Update, context: CallbackContext) -> int:
+    user_name = update.effective_user.name
     email = update.message.text
-    header = {
-        'Authorization': f'Bearer {get_cms_token()}',
-    }
-    params = {
-        'filter': f'eq(email,{email})'
-    }
-    url_path = f'/v2/customers'
-    url = f'{BASE_URL}{url_path}'
-    response = requests.get(url, headers=header, params=params)
-    response.raise_for_status()
-    customer_from_cms = response.json()
-
-    if not customer_from_cms['data']:
-        header = {
-            'Authorization': f'Bearer {get_cms_token()}',
-            }
-        data = {
-            'data': {
-                'type': 'customer',
-                'name': update.effective_user.name,
-                'email': email,
-            }
-        }
-        url_path = f'/v2/customers'
-        url = f'{BASE_URL}{url_path}'
-        response = requests.post(url, headers=header, json=data)
-        response.raise_for_status()
-
+    add_customer_to_cms(user_name, email)
     return end(update, context)
 
 
@@ -387,4 +233,6 @@ def main() -> None:
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    env.read_env()
+
     main()

@@ -81,8 +81,10 @@ def show_cart(update: Update, context: CallbackContext) -> int:
 
 
 def start(update: Update, context: CallbackContext) -> int:
-    user = update.message.from_user
-    logger.info("User %s started the conversation.", user.first_name)
+    message = update.message
+    if message:
+        logger.info("User %s started the conversation.", message.from_user.first_name)
+
     products = get_all_products()
     keyboard = []
     for product in products:
@@ -91,33 +93,18 @@ def start(update: Update, context: CallbackContext) -> int:
     keyboard.append([InlineKeyboardButton('Leave', callback_data=str(Buttons.LEAVE.value))])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    logo = Path.cwd() / 'images' / 'logo.png'
-    with open(logo, 'rb') as photo:
-        update.message.reply_photo(photo=photo, caption='Please, choose:', reply_markup=reply_markup)
-    return CHOOSE
-
-
-def start_over(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
-    query.answer()
-    products = get_all_products()
-    keyboard = []
-    for product in products:
-        keyboard.append(
-            [
-                InlineKeyboardButton(product['name'], callback_data=product['id'])
-            ]
-        )
-    keyboard.append([InlineKeyboardButton('Cart', callback_data=str(Buttons.CART.value))])
-    keyboard.append([InlineKeyboardButton('Leave', callback_data=str(Buttons.LEAVE.value))])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
     logo = Path.cwd() / 'images' / 'logo.png'
     with open(logo, 'rb') as photo:
-        query.edit_message_media(
-            media=InputMediaPhoto(media=photo, caption='Please, choose:'),
-            reply_markup=reply_markup
-        )
+        if query:
+            query.answer()
+            query.edit_message_media(
+                media=InputMediaPhoto(media=photo, caption='Please, choose:'),
+                reply_markup=reply_markup
+            )
+        else:
+            update.message.reply_photo(photo=photo, caption='Please, choose:', reply_markup=reply_markup)
+
     return CHOOSE
 
 
@@ -188,19 +175,19 @@ def main() -> None:
         entry_points=[CommandHandler('start', start)],
         states={
             CHOOSE: [
-                CallbackQueryHandler(start_over, pattern='^' + str(Buttons.START.value) + '$'),
-                CallbackQueryHandler(show_cart, pattern='^' + str(Buttons.CART.value) + '$'),
-                CallbackQueryHandler(end, pattern='^' + str(Buttons.LEAVE.value) + '$'),
+                CallbackQueryHandler(start, pattern=f'^{str(Buttons.START.value)}$'),
+                CallbackQueryHandler(show_cart, pattern=f'^{str(Buttons.CART.value)}$'),
+                CallbackQueryHandler(end, pattern=f'^{str(Buttons.LEAVE.value)}$'),
                 CallbackQueryHandler(show_product),
             ],
             FILL_CART: [
-                CallbackQueryHandler(start_over, pattern='^' + str(Buttons.START.value) + '$'),
-                CallbackQueryHandler(show_cart, pattern='^' + str(Buttons.CART.value) + '$'),
+                CallbackQueryHandler(start, pattern=f'^{str(Buttons.START.value)}$'),
+                CallbackQueryHandler(show_cart, pattern=f'^{str(Buttons.CART.value)}$'),
                 CallbackQueryHandler(add_to_cart),
             ],
             HANDLE_CART: [
-                CallbackQueryHandler(start_over, pattern='^' + str(Buttons.START.value) + '$'),
-                CallbackQueryHandler(pay, pattern='^' + str(Buttons.PAY.value) + '$'),
+                CallbackQueryHandler(start, pattern=f'^{str(Buttons.START.value)}$'),
+                CallbackQueryHandler(pay, pattern=f'^{str(Buttons.PAY.value)}$'),
                 CallbackQueryHandler(delete_from_cart),
             ],
             WAITING_EMAIL: [

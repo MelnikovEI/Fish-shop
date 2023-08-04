@@ -1,6 +1,5 @@
 import datetime
 import logging
-import pprint
 from enum import Enum
 from pathlib import Path
 import redis
@@ -15,10 +14,6 @@ from telegram.ext import (
     CallbackContext, MessageHandler, Filters,
 )
 
-
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-)
 logger = logging.getLogger(__name__)
 
 env = Env()
@@ -391,4 +386,5 @@ def main() -> None:
 
 
 if __name__ == '__main__':
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
     main()

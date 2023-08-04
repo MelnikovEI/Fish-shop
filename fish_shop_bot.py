@@ -1,7 +1,6 @@
 import logging
 from enum import Enum
 from pathlib import Path
-import redis
 from environs import Env
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto
 from telegram.ext import (
@@ -21,12 +20,6 @@ env = Env()
 
 CHOOSE, FILL_CART, HANDLE_CART, WAITING_EMAIL, END = range(5)  # Statuses
 
-redis_db = redis.Redis(
-    host=env('DATABASE_HOST'), port=env('DATABASE_PORT'), username=env('DATABASE_USERNAME'),
-    password=env('DATABASE_PASSWORD'),
-    decode_responses=True
-)
-
 
 class Buttons(Enum):
     START = 0
@@ -43,7 +36,6 @@ def add_to_cart(update: Update, context: CallbackContext) -> int:
     query.answer()
     quantity, product_id = query.data.split(maxsplit=1)
     add_product_to_cart(update.effective_user.id, quantity, product_id)
-    redis_db.hset(update.effective_user.id, mapping={'status': FILL_CART})
     return FILL_CART
 
 
@@ -85,7 +77,6 @@ def show_cart(update: Update, context: CallbackContext) -> int:
     with open(logo, 'rb') as photo:
         query.edit_message_media(media=InputMediaPhoto(media=photo, caption=cart_content), reply_markup=reply_markup)
 
-    redis_db.hset(update.effective_user.id, mapping={'status': HANDLE_CART})
     return HANDLE_CART
 
 
@@ -103,7 +94,6 @@ def start(update: Update, context: CallbackContext) -> int:
     logo = Path.cwd() / 'images' / 'logo.png'
     with open(logo, 'rb') as photo:
         update.message.reply_photo(photo=photo, caption='Please, choose:', reply_markup=reply_markup)
-    redis_db.hset(update.effective_user.id, mapping={'status': CHOOSE})
     return CHOOSE
 
 
@@ -128,7 +118,6 @@ def start_over(update: Update, context: CallbackContext) -> int:
             media=InputMediaPhoto(media=photo, caption='Please, choose:'),
             reply_markup=reply_markup
         )
-    redis_db.hset(update.effective_user.id, mapping={'status': CHOOSE})
     return CHOOSE
 
 
@@ -152,7 +141,6 @@ def show_product(update: Update, context: CallbackContext) -> int:
     with open(image, 'rb') as photo:
         query.edit_message_media(media=InputMediaPhoto(media=photo, caption=product_details), reply_markup=reply_markup)
 
-    redis_db.hset(update.effective_user.id, mapping={'status': FILL_CART})
     return FILL_CART
 
 
@@ -164,14 +152,12 @@ def pay(update: Update, context: CallbackContext) -> int:
     with open(logo, 'rb') as photo:
         query.edit_message_media(media=InputMediaPhoto(media=photo, caption='Enter your e-mail, please'))
 
-    redis_db.hset(update.effective_user.id, mapping={'status': WAITING_EMAIL})
     return WAITING_EMAIL
 
 
 def incorrect_email(update: Update, context: CallbackContext) -> int:
     update.message.reply_text("We've got incorrect e-mail from you :(. Please try again.")
 
-    redis_db.hset(update.effective_user.id, mapping={'status': WAITING_EMAIL})
     return WAITING_EMAIL
 
 
@@ -191,7 +177,6 @@ def end(update: Update, context: CallbackContext) -> int:
             query.edit_message_media(media=InputMediaPhoto(media=photo, caption='Thank you! See you next time!'))
     else:
         update.message.reply_text('Thank you! See you next time!')
-    redis_db.hset(update.effective_user.id, mapping={'status': END})
     return ConversationHandler.END
 
 

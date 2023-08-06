@@ -176,19 +176,19 @@ def main() -> None:
         entry_points=[CommandHandler('start', start)],
         states={
             CHOOSE: [
-                CallbackQueryHandler(start, pattern=f'^{str(Buttons.START.value)}$'),
-                CallbackQueryHandler(show_cart, pattern=f'^{str(Buttons.CART.value)}$'),
-                CallbackQueryHandler(end, pattern=f'^{str(Buttons.LEAVE.value)}$'),
+                CallbackQueryHandler(start, pattern=f'^{Buttons.START.value}$'),
+                CallbackQueryHandler(show_cart, pattern=f'^{Buttons.CART.value}$'),
+                CallbackQueryHandler(end, pattern=f'^{Buttons.LEAVE.value}$'),
                 CallbackQueryHandler(show_product),
             ],
             FILL_CART: [
-                CallbackQueryHandler(start, pattern=f'^{str(Buttons.START.value)}$'),
-                CallbackQueryHandler(show_cart, pattern=f'^{str(Buttons.CART.value)}$'),
+                CallbackQueryHandler(start, pattern=f'^{Buttons.START.value}$'),
+                CallbackQueryHandler(show_cart, pattern=f'^{Buttons.CART.value}$'),
                 CallbackQueryHandler(add_to_cart),
             ],
             HANDLE_CART: [
-                CallbackQueryHandler(start, pattern=f'^{str(Buttons.START.value)}$'),
-                CallbackQueryHandler(pay, pattern=f'^{str(Buttons.PAY.value)}$'),
+                CallbackQueryHandler(start, pattern=f'^{Buttons.START.value}$'),
+                CallbackQueryHandler(pay, pattern=f'^{Buttons.PAY.value}$'),
                 CallbackQueryHandler(delete_from_cart),
             ],
             WAITING_EMAIL: [

@@ -16,8 +16,6 @@ from cms_api import (
 )
 
 logger = logging.getLogger(__name__)
-env = Env()
-
 CHOOSE, FILL_CART, HANDLE_CART, WAITING_EMAIL, END = range(5)  # Statuses
 
 
@@ -168,6 +166,9 @@ def end(update: Update, context: CallbackContext) -> int:
 
 
 def main() -> None:
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    env = Env()
+    env.read_env()
     tg_bot_token = env('TG_BOT_TOKEN')
     updater = Updater(tg_bot_token)
     dispatcher = updater.dispatcher
@@ -204,7 +205,4 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-    env.read_env()
-
     main()
